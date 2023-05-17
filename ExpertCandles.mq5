@@ -46,7 +46,8 @@ void OnTick(){
    bool Sell_opened=false; // variable to hold the result of Sell opened position
     
    if (PositionSelect(_Symbol) ==true){  // we have an opened position
-      double currentSl,currentTp;
+      double currentSl = 0.0;
+      double currentTp = 0.0;
       if (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
          Buy_opened = true;  //It is a Buy
          if(PositionSelectByTicket(TicketNumber)){
