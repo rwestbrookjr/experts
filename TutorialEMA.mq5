@@ -1,5 +1,6 @@
 #include <Trade/Trade.mqh>
 
+
 // inputs
 input int      StopLoss = 1000;
 input int      TakeProfit = 10000;
@@ -13,10 +14,12 @@ input double   Lot = 5.0;
 double   fema[];
 double   mema[];
 double   sema[];
+double   atr[];
 double   p_close;
 int      femaHandle;
 int      memaHandle;
 int      semaHandle;
+int      atrHandle;
 int      STP, TKP, DIG;
 ulong    TicketNumber = 0;
 CTrade   trade;
@@ -26,8 +29,9 @@ int OnInit(){
    femaHandle = iMA(_Symbol,PERIOD_CURRENT,EMAFast_Period,0,MODE_EMA,PRICE_CLOSE);
    memaHandle = iMA(_Symbol,PERIOD_CURRENT,EMAMed_Period,0,MODE_EMA,PRICE_CLOSE);
    semaHandle = iMA(_Symbol,PERIOD_CURRENT,EMASlow_Period,0,MODE_EMA,PRICE_CLOSE);
+   atrHandle = iATR(_Symbol,PERIOD_CURRENT,5);
    
-   if(femaHandle<0 || memaHandle<0 || semaHandle<0){
+   if(femaHandle<0 || memaHandle<0 || semaHandle<0 || atrHandle<0){
       Alert("Error creating handles for indicators - error: ", GetLastError(), "!!");
    }
    
@@ -48,6 +52,7 @@ void OnDeinit(const int reason){
    IndicatorRelease(femaHandle);
    IndicatorRelease(memaHandle);
    IndicatorRelease(semaHandle);
+   IndicatorRelease(atrHandle);
    
 }
 void OnTick(){
@@ -103,6 +108,8 @@ void OnTick(){
       ArraySetAsSeries(sema,true);
    // the mrate arrays
       ArraySetAsSeries(mrate,true);
+   // the atr arrays
+      ArraySetAsSeries(atr,true);
       
    //--- Get the last price quote using the MQL5 MqlTick Structure
    if(!SymbolInfoTick(_Symbol,latest_price)){
@@ -117,15 +124,15 @@ void OnTick(){
    }
    
    //--- Copy the new values of our indicators to buffers (arrays) using the handle
-   if(CopyBuffer(femaHandle,0,0,3,fema)<0 || CopyBuffer(memaHandle,0,0,3,mema)<0 || CopyBuffer(semaHandle,0,0,3,sema)<0){
+   if(CopyBuffer(femaHandle,0,0,3,fema)<0 || CopyBuffer(memaHandle,0,0,3,mema)<0 || CopyBuffer(semaHandle,0,0,3,sema)<0 || CopyBuffer(atrHandle,0,0,3,atr)<0){
       Alert("Error copying Moving Average Indicator Buffers - error:",GetLastError(),"!!");
       return;
    }
    
    //--- we have no errors, so continue
    //--- Do we have positions opened already?
-    bool Buy_opened=false;  // variable to hold the result of Buy opened position
-    bool Sell_opened=false; // variable to hold the result of Sell opened position
+    bool Buy_opened = false;  // variable to hold the result of Buy opened position
+    bool Sell_opened = false; // variable to hold the result of Sell opened position
     
     if (PositionSelect(_Symbol) ==true)  // we have an opened position
     {
@@ -153,7 +160,7 @@ void OnTick(){
     previous price close above it, ADX > 22, +DI > -DI
    */
    //--- Declare bool type variables to hold our Buy Conditions
-   bool Buy_Condition_1 = (fema[2] < mema[2] && fema[1] > mema[1] && mema[1] > sema[1]);                 // 5EMA cross above 20EMA
+   bool Buy_Condition_1 = (mrate[0].close > (mema[0]-atr[0]));                 // 5EMA cross above 20EMA
    //bool Buy_Condition_2 = (mrate[0].close > sema[0] && mrate[0].close > mema[0] && fema[0] > mema[0]);   // 5EMA above 20EMA and price close above 5EMA
    /*bool Buy_Condition_3 = (adxVal[0]>Adx_Min);          // Current ADX value greater than minimum value (22)
    bool Buy_Condition_4 = (plsDI[0]>minDI[0]);          // +DI greater than -DI
@@ -169,7 +176,7 @@ void OnTick(){
       mrequest.action = TRADE_ACTION_DEAL;                                    // immediate order execution
       mrequest.price = NormalizeDouble(latest_price.ask,DIG);                 // latest ask price
       //mrequest.sl = NormalizeDouble(mrequest.price - STP,DIG);              // Stop Loss
-      mrequest.sl = NormalizeDouble(mema[0],DIG);                             // Stop Loss
+      mrequest.sl = NormalizeDouble(mema[0]-atr[0],DIG);                             // Stop Loss
       //mrequest.tp = NormalizeDouble(mrequest.price + TKP,DIG);                // Take Profit
       mrequest.symbol = _Symbol;                                              // currency pair
       mrequest.volume = Lot;                                                  // number of lots to trade
@@ -178,7 +185,9 @@ void OnTick(){
       mrequest.type_filling = ORDER_FILLING_FOK;                              // Order execution type
       mrequest.deviation=100;                                                 // Deviation from current price
       //--- send order
-      OrderSend(mrequest,mresult);
+      if(!OrderSend(mrequest,mresult)){
+         Alert("Failed to send buy order with Error: ", mresult.comment," !!");
+      }
       
       // get the result code
       if(mresult.retcode==10009 || mresult.retcode==10008){ //Request is completed or order placed
@@ -196,7 +205,7 @@ void OnTick(){
     previous price close below it, ADX > 22, -DI > +DI
    */
    //--- Declare bool type variables to hold our Sell Conditions
-   bool Sell_Condition_1 = (fema[2] > mema[2] && fema[1] < mema[1] && mema[1] < sema[1]);                   // 5EMA cross below 20EMA
+   bool Sell_Condition_1 = (mrate[0].close < (mema[0]+atr[0]));                   // 5EMA cross below 20EMA
    //bool Sell_Condition_2 = (mrate[0].close < sema[0] && mrate[0].close < mema[0] && fema[0] < mema[0]);     // 5EMA below 20EMA and price close below 5EMA
    /*bool Sell_Condition_3 = (adxVal[0]>Adx_Min);                                                           // Current ADX value greater than minimum (22)
    bool Sell_Condition_4 = (plsDI[0]<minDI[0]);                                                             // -DI greater than +DI
@@ -212,8 +221,8 @@ void OnTick(){
       mrequest.action = TRADE_ACTION_DEAL;                                       // immediate order execution
       mrequest.price = NormalizeDouble(latest_price.bid,DIG);                    // latest Bid price
       //mrequest.sl = NormalizeDouble(mrequest.price + STP,DIG);                 // Stop Loss
-      mrequest.sl = NormalizeDouble(mema[0],DIG);                                // Stop Loss
-      //mrequest.tp = NormalizeDouble(mrequest.price - TKP,DIG);                   // Take Profit
+      mrequest.sl = NormalizeDouble(mema[0]+atr[0],DIG);                         // Stop Loss
+      //mrequest.tp = NormalizeDouble(mrequest.price - TKP,DIG);                 // Take Profit
       mrequest.symbol = _Symbol;                                                 // currency pair
       mrequest.volume = Lot;                                                     // number of lots to trade
       mrequest.magic = EA_Magic;                                                 // Order Magic Number
@@ -221,8 +230,10 @@ void OnTick(){
       mrequest.type_filling = ORDER_FILLING_FOK;                                 // Order execution type
       mrequest.deviation=100;                                                    // Deviation from current price
       //--- send order
-      OrderSend(mrequest,mresult);
-      
+      if(!OrderSend(mrequest,mresult)){
+         Alert("Failed to send sell order with Error: ", mresult.comment," !!");
+      }
+
       if(mresult.retcode==10009 || mresult.retcode==10008){ //Request is completed or order placed
          Alert("A Sell order has been successfully placed with Ticket#:",mresult.order,"!!");
          TicketNumber = mresult.order;
@@ -235,30 +246,30 @@ void OnTick(){
    
 }
 
-void UpdateLongTsl(ulong TicketNumber){
-   if(PositionSelectByTicket(TicketNumber)){
+void UpdateLongTsl(ulong Ticket){
+   if(PositionSelectByTicket(Ticket)){
       PositionGetDouble(POSITION_SL,currentSl);
       PositionGetDouble(POSITION_TP, currentTp);
    }
    
-   if(sema[0] > currentSl){
-      currentSl = sema[0];
+   if(mema[0]-atr[0] > currentSl){
+      currentSl = mema[0]-atr[0];
    }
    
-   trade.PositionModify(TicketNumber,currentSl, currentTp);
+   trade.PositionModify(Ticket,currentSl, currentTp);
    
 }
 
-void UpdateShortTsl(ulong TicketNumber){
-   if(PositionSelectByTicket(TicketNumber)){
+void UpdateShortTsl(ulong Ticket){
+   if(PositionSelectByTicket(Ticket)){
       PositionGetDouble(POSITION_SL,currentSl);
       PositionGetDouble(POSITION_TP, currentTp);
    }
    
-   if(sema[0] < currentSl){
-      currentSl = sema[0];
+   if(mema[0]+atr[0] < currentSl){
+      currentSl = mema[0]+atr[0];
    }
    
-   trade.PositionModify(TicketNumber,currentSl, currentTp);
+   trade.PositionModify(Ticket,currentSl, currentTp);
    
 }
